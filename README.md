@@ -26,11 +26,15 @@ A single EventBridge rule fans out to two independent targets from the same trig
 
 - Enabled GuardDuty with all detection features active (including extended integrations covering EC2, ECR, and Lambda resources via AWS Inspector, which GuardDuty provisions automatically).
 - Used GuardDuty's built-in sample finding generator to produce realistic findings spanning all severity levels and finding types, without needing to simulate actual malicious activity against real infrastructure.
+  
+![GuardDuty findings summary](screenshots/GuardDuty_FindingsSummary.png)
 
 ### 2. Security Hub (Findings Aggregation)
 
 - Enabled Security Hub with the AWS Foundational Security Best Practices standard.
 - Confirmed Security Hub automatically ingests GuardDuty findings alongside its own foundational checks, giving a single aggregated view (Security Hub's dashboard reflects a cumulative historical view over a selected time window, which is why its totals differ from GuardDuty's live findings count — see Key Findings below).
+
+![Security Hub aggregated findings](screenshots/SecurityHub_Summary.png)
 
 ### 3. EventBridge Rule — Severity-Filtered Routing (`GuardDutyMediumHigh-Rule`)
 
@@ -39,6 +43,8 @@ A single EventBridge rule fans out to two independent targets from the same trig
 - Routed to two targets from this single rule:
   - **SNS** (`SecurityAlarms` topic, reused from Lab 1) for immediate email notification
   - **Lambda** (`GuardDutyFindingLogger`) for automated structured logging
+ 
+![EventBridge rule monitoring — 376 matched events](screenshots/EventBridge_MonitoringFindings.png)
 
 ### 4. Lambda Automated Response (`GuardDutyFindingLogger`)
 
@@ -47,13 +53,26 @@ A single EventBridge rule fans out to two independent targets from the same trig
 - **Execution role scoped to least privilege**: rather than attaching the broad `AmazonDynamoDBFullAccess` managed policy, I created a custom inline policy granting only `dynamodb:PutItem` on the specific `SecurityFindings` table ARN — nothing more. This keeps the Lambda's blast radius minimal even if its code or trigger were ever compromised.
 - EventBridge's own permission to invoke the Lambda was handled via a separate, auto-generated execution role scoped specifically to this one rule invoking this one function — distinct from the Lambda's own execution role, which controls what the function can do once running.
 
+![Lambda function code and configuration](screenshots/LambdaFunction.png)
+
+![DynamoDB item detail showing extracted finding fields](screenshots/DynamoDB_ExampleSecurityFinding.png)
+
 ## Testing & Verification
 
 - Generated GuardDuty sample findings (spanning all severities and finding types) to produce realistic test events without needing to simulate actual threats.
 - Verified the EventBridge rule's severity filter is functioning correctly: out of a batch of sample findings (5 Critical, 60 High, 48 Medium, 16 Low), only the Medium-and-above findings (113 of 129) triggered the rule — Low-severity findings were correctly excluded.
 - Confirmed SNS email delivery for triggered findings, including full JSON payload showing `source: aws.guardduty`, finding `type`, and `severity`.
+
+![SNS email notification for a GuardDuty finding](screenshots/GuardDuty_EmailSeverityFinding.png)
+
 - Confirmed Lambda execution via CloudWatch Logs — each invocation showed a clean `INIT_START/START → Logged finding [id] with severity [n] → END → REPORT` cycle with no errors.
+
+![CloudWatch Lambda execution log cycle](screenshots/CloudWatchLogCycle.png)
+
 - Confirmed DynamoDB writes directly in the table: inspected a full item to verify every extracted field (`findingId`, `accountId`, `createdAt`, `description`, `severity`, `title`, `type`, `loggedAt`) was populated correctly and matched the source finding.
+
+![DynamoDB table with logged findings](screenshots/DynamoDB_SecurityFindings.png)
+
 - **Note on testing process**: an early round of testing accidentally left duplicate sample findings in GuardDuty after clicking "Generate sample findings" multiple times across sessions, temporarily inflating the findings count to 444 and triggering a large batch of SNS emails. This was diagnosed, archived, and cleanly regenerated before final verification — included here as an honest account of the debugging/cleanup process, not just the final working state.
 
 ## Key Technical Findings
